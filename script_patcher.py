@@ -1,3 +1,4 @@
+# [BLOCK: MODULE_DOCSTRING] START
 """
 ScriptPatcher v2 — LLM-friendly block-based code patching utility.
 
@@ -6,7 +7,7 @@ markers in comments. Tolerant of LLM marker drift (case, whitespace,
 line endings) and avoids silent failures by returning structured results.
 
 Marker grammar (case-insensitive, whitespace-tolerant):
-    [BLOCK: NAME] START   ...content...   [BLOCK: NAME] END
+    [BLOCK: <name>] START   ...content...   [BLOCK: <name>] END
 
 Names may contain letters, digits, underscore, hyphen, and dot.
 The marker can be embedded in any comment style — the surrounding
@@ -22,7 +23,9 @@ Typical workflow:
     result = p.patch(patch_text)     # apply (writes to disk if filepath set)
     assert result.ok
 """
+# [BLOCK: MODULE_DOCSTRING] END
 
+# [BLOCK: IMPORTS] START
 import re
 import shutil
 import difflib
@@ -35,8 +38,10 @@ try:
     _HAS_IPYTHON = True
 except ImportError:
     _HAS_IPYTHON = False
+# [BLOCK: IMPORTS] END
 
 
+# [BLOCK: MARKER_RE] START
 # Forgiving marker pattern. Allows:
 #   - any case (BLOCK / block / Block)
 #   - whitespace inside the brackets ([ BLOCK : NAME ])
@@ -46,8 +51,10 @@ MARKER_RE = re.compile(
     r"\[\s*BLOCK\s*:\s*([A-Za-z0-9_\-\.]+)\s*\]\s*(START|END)\b",
     re.IGNORECASE,
 )
+# [BLOCK: MARKER_RE] END
 
 
+# [BLOCK: PATCH_RESULT] START
 @dataclass
 class PatchResult:
     """Outcome of a patch() call. Use .ok for a one-shot pass/fail check."""
@@ -76,8 +83,10 @@ class PatchResult:
             parts.append(f"  duplicate names in patch: {self.duplicates_in_patch}")
         body = "\n".join(parts) if parts else "  (no changes)"
         return f"PatchResult(ok={self.ok}):\n{body}"
+# [BLOCK: PATCH_RESULT] END
 
 
+# [BLOCK: VALIDATION_RESULT] START
 @dataclass
 class ValidationResult:
     """Structural check of all markers in the current content."""
@@ -99,9 +108,12 @@ class ValidationResult:
         if self.duplicates:
             parts.append(f"  duplicates: {self.duplicates}")
         return f"ValidationResult(ok={self.ok}):\n" + "\n".join(parts)
+# [BLOCK: VALIDATION_RESULT] END
 
 
+# [BLOCK: SCRIPT_PATCHER_CLASS] START
 class ScriptPatcher:
+    # [BLOCK: INIT] START
     def __init__(
         self,
         content: Optional[str] = None,
@@ -113,22 +125,28 @@ class ScriptPatcher:
         self.content = self._normalize_text(content) if content else content
         if self.filepath and self.content is None:
             self.load()
+    # [BLOCK: INIT] END
 
     # -- I/O --------------------------------------------------------------
 
+    # [BLOCK: NORMALIZE_TEXT] START
     @staticmethod
     def _normalize_text(text: str) -> str:
         """Collapse CRLF / CR to LF for stable matching."""
         if text is None:
             return text
         return text.replace("\r\n", "\n").replace("\r", "\n")
+    # [BLOCK: NORMALIZE_TEXT] END
 
+    # [BLOCK: LOAD] START
     def load(self) -> Optional[str]:
         if self.filepath:
             text = self.filepath.read_text(encoding="utf-8")
             self.content = self._normalize_text(text) if self._normalize else text
         return self.content
+    # [BLOCK: LOAD] END
 
+    # [BLOCK: SAVE] START
     def save(self, backup: bool = False) -> None:
         if not (self.filepath and self.content is not None):
             return
@@ -136,9 +154,11 @@ class ScriptPatcher:
             bak = self.filepath.with_suffix(self.filepath.suffix + ".bak")
             shutil.copy2(self.filepath, bak)
         self.filepath.write_text(self.content, encoding="utf-8")
+    # [BLOCK: SAVE] END
 
     # -- marker scanning --------------------------------------------------
 
+    # [BLOCK: SCAN_MARKERS] START
     def _scan_markers(self, text: str):
         """Yield (name, kind, line_start, line_end) for every marker found.
 
@@ -157,7 +177,9 @@ class ScriptPatcher:
             line_end = (nl + 1) if nl != -1 else len(text)
             out.append((name, kind, line_start, line_end))
         return out
+    # [BLOCK: SCAN_MARKERS] END
 
+    # [BLOCK: PAIR_BLOCKS] START
     def _pair_blocks(self, text: str):
         """Pair STARTs with ENDs. Names compared case-insensitively.
 
@@ -189,16 +211,20 @@ class ScriptPatcher:
 
         duplicates = [n for n, spans in pairs.items() if len(spans) > 1]
         return pairs, orphan_starts, orphan_ends, duplicates
+    # [BLOCK: PAIR_BLOCKS] END
 
     # -- public API -------------------------------------------------------
 
+    # [BLOCK: LIST_BLOCKS] START
     def list_blocks(self) -> List[str]:
         """Sorted names of well-formed (paired) blocks."""
         if not self.content:
             return []
         pairs, _, _, _ = self._pair_blocks(self.content)
         return sorted(pairs.keys())
+    # [BLOCK: LIST_BLOCKS] END
 
+    # [BLOCK: VALIDATE] START
     def validate(self) -> ValidationResult:
         """Inspect marker integrity without modifying anything."""
         r = ValidationResult()
@@ -210,7 +236,9 @@ class ScriptPatcher:
         r.orphan_ends = sorted(set(oe))
         r.duplicates = sorted(dups)
         return r
+    # [BLOCK: VALIDATE] END
 
+    # [BLOCK: EXTRACT] START
     def extract(self, block_name: str) -> Optional[str]:
         """Return the block including its marker lines, or None."""
         if not self.content:
@@ -223,15 +251,23 @@ class ScriptPatcher:
                 snippet = self.content[s:e]
                 return snippet[:-1] if snippet.endswith("\n") else snippet
         return None
+    # [BLOCK: EXTRACT] END
 
+    # [BLOCK: PATCH] START
     def patch(
         self,
         patch_text: str,
         dry_run: bool = False,
         save: bool = True,
         backup: bool = False,
+        preserve_indent: bool = True,
     ) -> PatchResult:
-        """Apply every well-formed block in patch_text to self.content."""
+        """Apply every well-formed block in patch_text to self.content.
+
+        With preserve_indent=True (default), each new block is re-indented
+        so its marker line matches the indent of the target's marker line.
+        A tab/space mismatch between target and patch raises ValueError.
+        """
         result = PatchResult()
         if self.content is None:
             return result
@@ -248,6 +284,22 @@ class ScriptPatcher:
         t_pairs, _, _, _ = self._pair_blocks(self.content)
         t_lookup = {k.lower(): k for k in t_pairs}  # case-insensitive lookup
 
+        def _leading_ws(line: str) -> str:
+            return line[: len(line) - len(line.lstrip())]
+
+        def _reindent(block_text: str, from_ws: str, to_ws: str) -> str:
+            if from_ws == to_ws:
+                return block_text
+            out = []
+            for line in block_text.split("\n"):
+                if not line.strip():
+                    out.append(line)  # leave blank lines alone
+                elif line.startswith(from_ws):
+                    out.append(to_ws + line[len(from_ws):])
+                else:
+                    out.append(line)  # less-indented than marker; preserve
+            return "\n".join(out)
+
         # Build replacements first so we can apply them right-to-left
         # (preserves earlier offsets after each splice).
         replacements: List[Tuple[int, int, str, str]] = []
@@ -259,6 +311,24 @@ class ScriptPatcher:
                 result.not_found.append(name)
                 continue
             ts, te = t_pairs[target_name][0]
+
+            if preserve_indent:
+                t_line = self.content[ts:].split("\n", 1)[0]
+                p_line = new_block.split("\n", 1)[0]
+                t_ws = _leading_ws(t_line)
+                p_ws = _leading_ws(p_line)
+                if t_ws and p_ws:
+                    t_tabs = "\t" in t_ws
+                    p_tabs = "\t" in p_ws
+                    if t_tabs != p_tabs:
+                        raise ValueError(
+                            f"Indent style mismatch in block {name!r}: "
+                            f"target uses {'tabs' if t_tabs else 'spaces'}, "
+                            f"patch uses {'tabs' if p_tabs else 'spaces'}. "
+                            f"Normalize the patch text to match the target."
+                        )
+                new_block = _reindent(new_block, p_ws, t_ws)
+
             replacements.append((ts, te, new_block, name))
 
         if dry_run:
@@ -275,7 +345,9 @@ class ScriptPatcher:
             self.save(backup=backup)
 
         return result
+    # [BLOCK: PATCH] END
 
+    # [BLOCK: PATCH_MANY] START
     def patch_many(
         self,
         updates: Dict[str, str],
@@ -310,7 +382,9 @@ class ScriptPatcher:
 
         combined = "\n".join(updates.values())
         return self.patch(combined, **kwargs)
+    # [BLOCK: PATCH_MANY] END
 
+    # [BLOCK: DIFF] START
     def diff(self, patch_text: str, n: int = 2) -> str:
         """Unified diff of what patch() would produce. Does not mutate."""
         if self.content is None:
@@ -326,7 +400,9 @@ class ScriptPatcher:
                 n=n,
             )
         )
+    # [BLOCK: DIFF] END
 
+    # [BLOCK: RENDER_HTML] START
     def render_html(self) -> None:
         """Display current content as HTML in a Jupyter/Colab cell."""
         if not _HAS_IPYTHON:
@@ -334,3 +410,5 @@ class ScriptPatcher:
             return
         if self.content:
             _ipy_display.display(_ipy_display.HTML(self.content))
+    # [BLOCK: RENDER_HTML] END
+# [BLOCK: SCRIPT_PATCHER_CLASS] END
